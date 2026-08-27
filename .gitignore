@@ -1,0 +1,10 @@
+# Builds
+*.exe
+*.o
+*.obj
+
+# Base de données générée au lancement du serveur
+chat.db
+chat.db-journal
+chat.db-wal
+chat.db-shm

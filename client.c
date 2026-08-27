@@ -11,6 +11,33 @@
 static SOCKET sockfd;
 static volatile int running = 1;
 
+#define RESET   "\033[0m"
+#define BOLD    "\033[1m"
+#define GRAY    "\033[90m"
+#define RED     "\033[31m"
+#define GREEN   "\033[32m"
+#define YELLOW  "\033[33m"
+#define BLUE    "\033[34m"
+#define MAG     "\033[35m"
+#define CYAN    "\033[36m"
+#define WHITE   "\033[97m"
+
+static void enable_ansi(void) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    if (GetConsoleMode(h, &mode))
+        SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+}
+
+/* Couleur stable attribuée par pseudo (palette type WhatsApp). */
+static const char *name_color(const char *name) {
+    unsigned h = 0;
+    for (const unsigned char *p = (const unsigned char *)name; *p; p++)
+        h = h * 31 + *p;
+    static const char *palette[] = { GREEN, YELLOW, BLUE, MAG, CYAN, WHITE };
+    return palette[h % 6];
+}
+
 static void send_line(const char *line) {
     int len = (int)strlen(line);
     int total = 0;
@@ -21,11 +48,62 @@ static void send_line(const char *line) {
     }
 }
 
+/* Affiche une ligne reçue avec mise en forme colorée. */
+static void print_line(const char *line) {
+    if (strncmp(line, "[system]", 8) == 0) {
+        printf("%s%s%s\n", RED, line + 8, RESET);
+        return;
+    }
+
+    if (line[0] == '-' && line[1] == '-' && line[2] == '-') {
+        /* bandeau de date "----- jj/mm/aaaa -----" et entetes "---" */
+        printf("%s%s%s%s\n", CYAN, BOLD, line, RESET);
+        return;
+    }
+
+    /* message "[HH:MM] pseudo: contenu" */
+    if (line[0] == '[') {
+        const char *close = strchr(line, ']');
+        if (close) {
+            const char *colon = strstr(close + 1, ": ");
+            if (colon) {
+                size_t tl = close - line - 1;
+                if (tl > 7) tl = 7;
+                char timebuf[8];
+                memcpy(timebuf, line + 1, tl);
+                timebuf[tl] = '\0';
+
+                /* nom avec espaces de tête retirés */
+                const char *np = close + 1;
+                while (np < colon && (*np == ' ' || *np == '\t')) np++;
+                size_t nl = colon - np;
+                if (nl > 63) nl = 63;
+                char namebuf[64];
+                memcpy(namebuf, np, nl);
+                namebuf[nl] = '\0';
+
+                printf("%s[%s]%s %s%s%s%s: %s%s\n",
+                       GRAY, timebuf, RESET,
+                       name_color(namebuf), BOLD, namebuf, RESET,
+                       RESET, colon + 2);
+                return;
+            }
+        }
+    }
+
+    if (strstr(line, "rejoint") || strstr(line, "quitt")
+        || strstr(line, "deconnecte") || strstr(line, "Bienvenue")) {
+        printf("%s%s%s\n", CYAN, line, RESET);
+        return;
+    }
+
+    printf("%s%s\n", RESET, line);
+}
+
 /* Thread lecture clavier : envoie chaque ligne saisie au serveur. */
 static unsigned __stdcall input_thread(void *param) {
     char line[MAX_MSG];
     while (running && fgets(line, sizeof(line), stdin)) {
-        /* retire le \n pour l'affichage utilisateur (le serveur en ajoute) */
         for (char *p = line; *p; p++) {
             if (*p == '\n') { *p = '\0'; break; }
         }
@@ -49,6 +127,8 @@ int main(int argc, char **argv) {
 
     const char *host = argv[1];
     int port = atoi(argv[2]);
+
+    enable_ansi();
 
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
@@ -77,19 +157,34 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("Connecte a %s:%d\n", host, port);
-    printf("Commandes : /nom <pseudo> | /join <salon> | /leave | /rooms | /history | /quit\n\n");
+    printf("%s%sConnecte a %s:%d%s\n", GREEN, BOLD, host, port, RESET);
+    printf("%sCommandes :%s\n", CYAN, RESET);
+    printf("  %s/register <pseudo> <mdp>%s  %s/login <pseudo> <mdp>%s\n",
+           GREEN, RESET, GREEN, RESET);
+    printf("  /nom <pseudo>  /join <salon>  /leave  /rooms  /history  %s/quit%s\n",
+           RED, RESET);
+    printf("\n");
 
-    /* lance la lecture du clavier dans un thread */
     _beginthreadex(NULL, 0, input_thread, NULL, 0, NULL);
 
-    /* boucle principale : attend les messages du serveur */
     char buf[MAX_MSG];
+    char line[MAX_MSG];
+    int len = 0;
     while (running) {
         int n = recv(sockfd, buf, sizeof(buf) - 1, 0);
         if (n <= 0) break;
         buf[n] = '\0';
-        fputs(buf, stdout);
+
+        for (int i = 0; i < n; i++) {
+            char ch = buf[i];
+            if (ch == '\n') {
+                line[len] = '\0';
+                if (len > 0) print_line(line);
+                len = 0;
+            } else if (len < MAX_MSG - 1) {
+                line[len++] = ch;
+            }
+        }
         fflush(stdout);
     }
 

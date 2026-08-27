@@ -10,6 +10,11 @@ l'historique est **persisté dans SQLite** (`chat.db`).
 - **Salons** : rejoindre/créer un salon, revenir au salon général
 - **Historique persistant** : chaque message est stocké dans SQLite. Quand un
   client rejoint un salon, il reçoit les 50 derniers messages passés.
+- **Heure sur chaque message** : affichage `[HH:MM]` style WhatsApp/Messenger.
+- **Séparateurs de date** : un bandeau `----- jj/mm/aaaa -----` apparaît à
+  chaque changement de jour, en direct comme dans l'historique.
+- **Interface colorée** : pseudo par couleur, heure en gris, entêtes/système
+  en couleur (ANSI sous Windows).
 - Sauvegarde automatique dans `chat.db` dès le lancement du serveur
 
 ## Compilation (Windows / MinGW)
@@ -33,17 +38,29 @@ Terminal 2, 3, ... (clients) :
 client.exe 127.0.0.1 5555
 ```
 
+À la connexion, chaque utilisateur doit **s'authentifier** :
+```bash
+/register <pseudo> <mdp>   # créer un compte
+/login <pseudo> <mdp>      # se connecter
+```
+
 ## Commandes côté client
 
 | Commande | Effet |
 |----------|-------|
-| `/nom <pseudo>` | Changer de pseudo (défaut "ClientXX") |
+| `/register <pseudo> <mdp>` | Créer un compte (nom unique, mdp 3-32 car.) |
+| `/login <pseudo> <mdp>` | Se connecter à un compte existant |
+| `/nom <pseudo>` | Changer le pseudo affiché (après connexion) |
 | `/join <salon>` | Rejoindre ou créer un salon → reçoit l'historique |
 | `/leave` | Revenir au salon général |
 | `/rooms` | Lister les salons et leur nombre de connectés |
 | `/history` | Afficher les 50 derniers messages du salon courant |
 | `/quit` | Quitter le chat |
 | `<texte>` | Envoyer un message au salon courant (sauvegardé en base) |
+
+> **Note** : avant de se connecter, seules `/register`, `/login` et `/quit` sont
+> autorisées. Les mots de passe sont stockés **hachés en SHA-256** (jamais en
+> clair).
 
 ## Fonctionnement
 

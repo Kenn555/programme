@@ -657,7 +657,7 @@ static void handle_line(int ci, char *line) {
         /* Le reste est interdit tant que l'utilisateur n'est pas connecté. */
         if (!clients[ci].authenticated) {
             send_all(clients[ci].fd,
-                     "[system] Veuillez vous connecter : /login <pseudo> <mdp> ou /register <pseudo> <mdp>\n");
+                     "[system] Veuillez vous connecter : /login <pseudo> ou /register <pseudo> (mot de passe demande par le client)\n");
             return;
         }
 
@@ -682,7 +682,7 @@ static void handle_line(int ci, char *line) {
     /* Message de discussion : interdit avant connexion. */
     if (!clients[ci].authenticated) {
         send_all(clients[ci].fd,
-                 "[system] Veuillez vous connecter : /login <pseudo> <mdp> ou /register <pseudo> <mdp>\n");
+                 "[system] Veuillez vous connecter : /login <pseudo> ou /register <pseudo> (mot de passe demande par le client)\n");
         return;
     }
 
@@ -746,8 +746,9 @@ static void accept_client(SOCKET listen_sock) {
 
     send_all(newfd, "--- Bienvenue dans le chat ! ---\n");
     send_all(newfd, "[system] --- Authentification requise ---\n");
-    send_all(newfd, "[system] Nouveau compte : /register <pseudo> <mdp>\n");
-    send_all(newfd, "[system] Deja inscrit :  /login <pseudo> <mdp>\n");
+    send_all(newfd, "[system] Nouveau compte : /register <pseudo>\n");
+    send_all(newfd, "[system] Deja inscrit :  /login <pseudo>\n");
+    send_all(newfd, "[system] (le mot de passe est demande en masque par le client)\n");
     send_all(newfd, "[system] ---\n");
 }
 

@@ -40,16 +40,19 @@ client.exe 127.0.0.1 5555
 
 À la connexion, chaque utilisateur doit **s'authentifier** :
 ```bash
-/register <pseudo> <mdp>   # créer un compte
-/login <pseudo> <mdp>      # se connecter
+/register <pseudo>   # créer un compte
+/login <pseudo>      # se connecter
 ```
+Le client demande alors le **mot de passe masqué** (affiché en `*`, jamais en
+clair à l'écran). On peut aussi taper `/register` ou `/login` seul : le pseudo
+est demandé aussi.
 
 ## Commandes côté client
 
 | Commande | Effet |
 |----------|-------|
-| `/register <pseudo> <mdp>` | Créer un compte (nom unique, mdp 3-32 car.) |
-| `/login <pseudo> <mdp>` | Se connecter à un compte existant |
+| `/register <pseudo>` | Créer un compte (demande le mdp masqué, 3-32 car.) |
+| `/login <pseudo>` | Se connecter (demande le mdp masqué) |
 | `/nom <pseudo>` | Changer le pseudo affiché (après connexion) |
 | `/join <salon>` | Rejoindre ou créer un salon → reçoit l'historique |
 | `/leave` | Revenir au salon général |
@@ -59,8 +62,8 @@ client.exe 127.0.0.1 5555
 | `<texte>` | Envoyer un message au salon courant (sauvegardé en base) |
 
 > **Note** : avant de se connecter, seules `/register`, `/login` et `/quit` sont
-> autorisées. Les mots de passe sont stockés **hachés en SHA-256** (jamais en
-> clair).
+> autorisées. Les mots de passe sont saisis **masqués** et stockés **hachés en
+> SHA-256** (jamais en clair, ni à l'écran ni en base).
 
 ## Fonctionnement
 

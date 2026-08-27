@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <process.h>
+#include <conio.h>
 
 #define MAX_MSG 1024
 
@@ -46,6 +47,30 @@ static void send_line(const char *line) {
         if (n <= 0) { running = 0; return; }
         total += n;
     }
+}
+
+/* Lit un mot de passe sans l'afficher à l'écran (masqué par des '*'). */
+static void read_hidden(char *buf, int maxlen) {
+    int i = 0;
+    int ch;
+    while (1) {
+        ch = _getch();
+        if (ch == '\r' || ch == '\n') break;
+        else if (ch == '\b' || ch == 127) {
+            if (i > 0) { i--; printf("\b \b"); fflush(stdout); }
+        } else if (ch == 3) {          /* Ctrl+C */
+            printf("^C\n");
+            running = 0;
+            exit(0);
+        } else if (i < maxlen - 1) {
+            buf[i++] = (char)ch;
+            printf("*");
+            fflush(stdout);
+        }
+    }
+    buf[i] = '\0';
+    printf("\n");
+    fflush(stdout);
 }
 
 /* Affiche une ligne reçue avec mise en forme colorée. */
@@ -100,14 +125,50 @@ static void print_line(const char *line) {
     printf("%s%s\n", RESET, line);
 }
 
-/* Thread lecture clavier : envoie chaque ligne saisie au serveur. */
+/* Thread lecture clavier : gère l'authentification et envoie les lignes. */
 static unsigned __stdcall input_thread(void *param) {
     char line[MAX_MSG];
     while (running && fgets(line, sizeof(line), stdin)) {
         for (char *p = line; *p; p++) {
-            if (*p == '\n') { *p = '\0'; break; }
+            if (*p == '\n' || *p == '\r') { *p = '\0'; break; }
         }
-        if (running) {
+        if (!running) break;
+
+        char *lp = line;
+        while (*lp == ' ') lp++;
+
+        int is_login = 0, is_register = 0;
+        if (strncmp(lp, "/login", 6) == 0 && (lp[6] == '\0' || lp[6] == ' '))
+            is_login = 1;
+        else if (strncmp(lp, "/register", 9) == 0 && (lp[9] == '\0' || lp[9] == ' '))
+            is_register = 1;
+
+        if (is_login || is_register) {
+            char pseudo[33];
+            const char *arg = lp + (is_login ? 6 : 9);
+            while (*arg == ' ') arg++;
+            if (*arg != '\0' && *arg != '/') {
+                int n = 0;
+                const char *p = arg;
+                while (*p && *p != ' ' && n < 32) pseudo[n++] = *p++;
+                pseudo[n] = '\0';
+            } else {
+                printf("Pseudo  : "); fflush(stdout);
+                if (!fgets(pseudo, sizeof(pseudo), stdin)) break;
+                for (char *q = pseudo; *q; q++)
+                    if (*q == '\n' || *q == '\r') { *q = '\0'; break; }
+            }
+
+            printf("Mot de passe : "); fflush(stdout);
+            char pass[MAX_MSG];
+            read_hidden(pass, sizeof(pass));
+            if (!running) break;
+
+            char out[MAX_MSG + 64];
+            snprintf(out, sizeof(out), "/%s %s %s\n",
+                     is_login ? "login" : "register", pseudo, pass);
+            send_line(out);
+        } else {
             char out[MAX_MSG + 2];
             snprintf(out, sizeof(out), "%s\n", line);
             send_line(out);
@@ -159,7 +220,7 @@ int main(int argc, char **argv) {
 
     printf("%s%sConnecte a %s:%d%s\n", GREEN, BOLD, host, port, RESET);
     printf("%sCommandes :%s\n", CYAN, RESET);
-    printf("  %s/register <pseudo> <mdp>%s  %s/login <pseudo> <mdp>%s\n",
+    printf("  %s/register <pseudo>%s  %s/login <pseudo>%s  (mdp saisi en masque)\n",
            GREEN, RESET, GREEN, RESET);
     printf("  /nom <pseudo>  /join <salon>  /leave  /rooms  /history  %s/quit%s\n",
            RED, RESET);

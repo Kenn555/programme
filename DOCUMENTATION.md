@@ -115,14 +115,34 @@ salon, retrait de la liste, fermeture de la socket.
 
 ```
 Thread d'entrée (input_thread)        Boucle principale (main)
-  fgets() → lit le clavier        ┐   select()/recv() → messages serveur
-  send_line() → envoie au réseau  ┘   print_line() → affichage coloré
+  fgets()/_getch() → lit le clavier┐  select()/recv() → messages serveur
+  send_line() → envoie au réseau  ┘  print_line() → affichage coloré
 ```
 
-- **Thread clavier** : lit une ligne au clavier, l'envoie telle quelle (le
-  serveur ajoute lui-même l'heure lors du broadcast de retour).
+- **Thread clavier** : lit une ligne au clavier et l'envoie. Pour `/login` et
+  `/register`, il intercepte la commande et demande le mot de passe en **saisie
+  masquée** (caractères remplacés par `*`, rien n'est affiché en clair), puis
+  envoie au serveur `login <pseudo> <mdp>` / `register <pseudo> <mdp>`.
 - **Boucle réseau** : reçoit les données du serveur, découpe en lignes et les
   affiche via `print_line()`.
+
+### 3.2.1 Saisie masquée du mot de passe
+
+`read_hidden(buf, maxlen)` lit le clavier caractère par caractère via `_getch()`
+(`<conio.h>`), sans écho :
+
+- affiche `*` à chaque caractère,
+- gère la suppression (Backspace `\b` / `127`),
+- `Entrée` termine la saisie,
+- `Ctrl+C` (code 3) quitte le programme.
+
+Le client détecte les commandes `/login` / `/register` :
+
+- si un pseudo est fourni (`/login Alice`) → il demande seulement le mot de passe ;
+- sinon → il demande d'abord le pseudo, puis le mot de passe masqué.
+
+Aucun mot de passe n'apparaît en clair à l'écran, ni dans la ligne envoyée que
+le serveur reçoit de façon séparée.
 
 ### 3.3 Mise en forme (`print_line`)
 
@@ -168,8 +188,8 @@ Alice a rejoint le salon
 
 | Commande | Flux | Effet serveur |
 |----------|------|---------------|
-| `/register <pseudo> <mdp>` | ligne unique | crée le compte (unique) puis connecte |
-| `/login <pseudo> <mdp>` | ligne unique | authentifie et connecte le client |
+| `/register <pseudo>` | 2 étapes (pseudo clavier + mdp masqué) | crée le compte (unique) puis connecte |
+| `/login <pseudo>` | 2 étapes (pseudo clavier + mdp masqué) | authentifie et connecte le client |
 | `/nom <pseudo>` | ligne unique | change le pseudo du client (après connexion) |
 | `/join <salon>` | ligne unique | crée/rejoint le salon, envoie `history` |
 | `/leave` | ligne unique | retour au salon `general` |
@@ -197,6 +217,9 @@ CLIENT                        SERVEUR                     SQLITE
   │                              │   (room_idx = -1,        │
   │                              │    authenticated = 0)    │
   │                              │                          │
+  │  /register Alice (clavier)   │                          │
+  │  └─ invite "Mot de passe :"  │                          │
+  │     (saisie masquée, "*")    │                          │
   ├── /register Alice mdp ──────►│ do_register()            │
   │                              ├── valid_username/mdp     │
   │                              ├── hash mdp (SHA-256+salt)│
@@ -209,6 +232,8 @@ CLIENT                        SERVEUR                     SQLITE
   │                              ├── db_send_history(general)│
   │◄── historique + "X a rejoint"┤                          │
   │                              │                          │
+  │  /login Alice (clavier)      │                          │
+  │  └─ invite mdp masqué        │                          │
   ├── /login Alice mdp ─────────►│ do_login()               │
   │                              ├── hash mdp, compare    ─►│ SELECT password_hash
   │                              ├── (si OK) authenticated  │
@@ -217,6 +242,13 @@ CLIENT                        SERVEUR                     SQLITE
 
 `hash_password(user, mdp)` calcule `SHA-256(user + ":" + mdp)` → stocké en hexa
 (64 caractères). Jamais de mot de passe en clair dans `chat.db`.
+
+**Sécurité à la saisie** : le client n'accepte jamais le mot de passe comme
+argument visible. Pour `/login`/`/register`, il demande le mot de passe en
+saisie masquée (`_getch`, affiché en `*`) puis envoie la ligne combinée
+`login <pseudo> <mdp>` au serveur. Le mot de passe n'apparaît ni à l'écran, ni
+dans le buffer réseau en clair au niveau applicatif (reste en clair sur le
+réseau TCP — voir limites).
 
 ### 5.2 Connexion d'un client (après authentification)
 
@@ -343,7 +375,7 @@ d'index sur `messages(room_id, id)` améliorerait les gros volumes.
 |------------|------|------|
 | `winsock2.h` / `ws2_32` | en-tête / lib système Windows | sockets TCP (`socket`, `connect`, `recv`, `send`) |
 | `windows.h` | en-tête système | console (`SetConsoleMode`/ANSI), types |
-| `conio.h` / `process.h` | en-tête système | `_beginthreadex` (thread de lecture clavier) |
+| `conio.h` / `process.h` | en-tête système | `_beginthreadex` (thread clavier), `_getch` (saisie masquée du mot de passe) |
 | `stdio.h`, `stdlib.h`, `string.h` | bibliothèque C standard | E/S, chaînes |
 
 **Le client n'utilise PAS SQLite** — toute la persistance est côté serveur.
@@ -375,8 +407,8 @@ gcc -Wall -O2 -o client.exe client.c -lws2_32
 |-----------------|------------------------|
 | `MAX_CLIENTS` fixé à 30 | liste chaînée + allocation dynamique pour un nombre illimité |
 | `MAX_ROOMS` fixé à 20 | allocation dynamique, gestion de la suppression |
-| TCP en clair | chiffrement TLS |
+| TCP en clair (le mdp est envoyé en clair sur le réseau) | chiffrement TLS (ex. OpenSSL) |
+| Hash SHA-256 simple (`user + ":" + mdp`) | PBKDF2/bcrypt/argon2 avec sel aléatoire |
 | Historique limité à 50 lignes affichées | pagination / recherche dans l'historique |
 | Pas de salon privé | messages directs (1:1) ou salon par mot de passe |
 | Heure `HH:MM` seulement | ajouter `SS` optionnel ou fuseaux par client |
-| Connexions par login | authentification (mot de passe) |
